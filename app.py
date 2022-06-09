@@ -1,5 +1,6 @@
 from dataclasses import field
 from email.policy import strict
+import json
 from tabnanny import check
 from flask import Flask, make_response, redirect, render_template, url_for, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -33,6 +34,20 @@ db = SQLAlchemy(app)
 ma = Marshmallow(app)
 #init migrate
 migrate = Migrate(app, db)
+
+# execption
+from werkzeug.exceptions import HTTPException, NotFound
+@app.errorhandler(HTTPException)
+def handle_exception(e):
+    # if isinstance(e, NotFound):
+    #     return jsonify({'message':'not found'})
+    if isinstance(e, HTTPException):
+        return jsonify({
+            "code": e.code,
+            "name": e.name,
+            "description": e.description,
+        })
+    return e
 
 # model
 class Todo(db.Model):
@@ -101,12 +116,7 @@ def token_required(f):
     return decorated
         
 
-@app.route("/users", methods=['GET'])
-def get_users():
-    if request.method == 'GET':
-        users = User.query.order_by(User.created_at.desc()).all()
-        return users_schema.jsonify(users)
-    
+   
 class registerRequest(FlaskForm):
     class Meta:
         csrf = False
@@ -131,7 +141,6 @@ class registerRequest(FlaskForm):
         if user:
             raise validators.ValidationError('This email was exists.')
     
-    
 class loginRequest(FlaskForm):
     class Meta:
         csrf = False
@@ -146,7 +155,12 @@ class loginRequest(FlaskForm):
     ])
     
     
-
+@app.route("/users", methods=['GET'])
+def get_users():
+    if request.method == 'GET':
+        users = User.query.order_by(User.created_at.desc()).all()
+        return users_schema.jsonify(users)
+ 
 @app.route("/register", methods=['POST'])
 def register():
     if request.method == 'POST':
@@ -174,7 +188,6 @@ def load_user(user):
     if request.method == 'GET':
         return user_schema.jsonify(user)
 
-    
 @app.route("/login", methods=['POST'])
 def login():
     if request.method == 'POST':
