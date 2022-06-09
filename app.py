@@ -5,11 +5,13 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 import os
 from datetime import datetime
-
-
+import uuid
+from  werkzeug.security import generate_password_hash, check_password_hash
+from flask_migrate import Migrate
 
 # Init app
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'secret_key'
 
 # Database
 dbname = 'postgres'
@@ -23,6 +25,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 db = SQLAlchemy(app)
 #Init marshmallow
 ma = Marshmallow(app)
+#init migrate
+migrate = Migrate(app, db)
 
 # model
 class Todo(db.Model):
@@ -54,8 +58,31 @@ class TodoSchema(ma.Schema): # ma.ModelSchema
 todo_schema = TodoSchema()
 todos_schema = TodoSchema(many=True)
         
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(200), nullable=False)
+    password = db.Column(db.String(80))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+class UserSchema(ma.Schema):
+    class Meta:
+        model = User
+        
+user_schema = UserSchema()
+users_schema = UserSchema(many=True)
 
 
+@app.route("/users", methods=['GET'])
+def get_users():
+    if request.method == 'GET':
+        users = User.query.order_by(User.created_at.desc()).all()
+        return users_schema.jsonify(users)
+    
+
+# route
 @app.route("/", methods=['GET'])
 def index():
     if request.method == 'GET':
