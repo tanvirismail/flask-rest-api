@@ -1,16 +1,19 @@
 from dataclasses import field
 from email.policy import strict
-from flask import Flask, redirect, render_template, url_for, request, jsonify
+from tabnanny import check
+from flask import Flask, make_response, redirect, render_template, url_for, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 from  werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf import FlaskForm
 from wtforms import Form, BooleanField, StringField, PasswordField, EmailField, validators
 from werkzeug.datastructures import ImmutableMultiDict
+import jwt
+from functools import wraps
 
 # Init app
 app = Flask(__name__)
@@ -73,10 +76,30 @@ class User(db.Model):
 class UserSchema(ma.Schema):
     class Meta:
         fields = ('id','name','email','password','created_at')
+        exclude = ("password", )
         
 user_schema = UserSchema()
 users_schema = UserSchema(many=True)
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization']
+        if not token:
+            return jsonify({'message':"token is missing"}), 401
+        
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'])
+            user = User.query.filter_by( email=data['username'] ).first()
+        except:
+            return jsonify({'message':"Token is invalid"}), 401
+        
+        return f( user, *args, **kwargs)
+    
+    return decorated
+        
 
 @app.route("/users", methods=['GET'])
 def get_users():
@@ -84,7 +107,7 @@ def get_users():
         users = User.query.order_by(User.created_at.desc()).all()
         return users_schema.jsonify(users)
     
-class userFromRequest(FlaskForm):
+class registerRequest(FlaskForm):
     class Meta:
         csrf = False
     name =  StringField('name', validators=[ 
@@ -108,12 +131,27 @@ class userFromRequest(FlaskForm):
         if user:
             raise validators.ValidationError('This email was exists.')
     
+    
+class loginRequest(FlaskForm):
+    class Meta:
+        csrf = False
+    username = EmailField('username', validators=[ 
+        validators.InputRequired('The username is required.'),
+        validators.Length(min=- 1, max= 150, message='mininum 1 to maximum 150 charecter is required.'),
+        validators.Email(message='Invalid Email.')
+    ])
+    password = PasswordField('password',validators=[
+        validators.InputRequired('The password is required.'),
+        validators.Length(min= 4, max= 32, message='mininum 4 to maximum 32 charecter is required.')
+    ])
+    
+    
 
 @app.route("/register", methods=['POST'])
 def register():
     if request.method == 'POST':
         # validation
-        form = userFromRequest()
+        form = registerRequest()
         if form.validate():
             name = request.json['name']
             email = request.json['email']
@@ -128,12 +166,35 @@ def register():
         else:
             return jsonify({'message':'The given data was invalid.','errors':form.errors})
         
-@app.route("/load-user/<id>", methods=['GET'])
-def load_user(id):
+@app.route("/load-user", methods=['GET'])
+@token_required
+def load_user(user):
+    if not user:
+        return jsonify({'message':'unauthenticate'}),401
     if request.method == 'GET':
-        user =  User.query.filter_by( id=id ).first()
-        return user_schema.jsonify(user)    
-  
+        return user_schema.jsonify(user)
+
+    
+@app.route("/login", methods=['POST'])
+def login():
+    if request.method == 'POST':
+        form = loginRequest()
+        if form.validate():  
+            username = request.json['username']
+            password = request.json['password']
+            user =  User.query.filter_by( email=username ).first()
+            if not user:
+                return make_response('Could not verify',401,{'WWW-Authenticate':'Basic realm="Login required!"'})
+            if check_password_hash(user.password,password):
+                token = jwt.encode({
+                    'username': user.email,
+                    'expire_at': str( datetime.utcnow() + timedelta(minutes=30) )
+                }, app.config['SECRET_KEY'])
+                return jsonify({'token': token.decode('UTF-8')})
+            
+            return make_response('Could not verify',401,{'WWW-Authenticate':'Basic realm="Login required!"'})
+        else:
+            return jsonify({'message':'The given data was invalid.','errors':form.errors})
   
   
   

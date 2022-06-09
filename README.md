@@ -15,3 +15,6 @@ flask db upgrade
 pip install flask-wtf
 pip install wtforms-json
 pip install email_validator
+
+## jwt
+pip install jwt
