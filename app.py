@@ -8,6 +8,9 @@ from datetime import datetime
 import uuid
 from  werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
+from flask_wtf import FlaskForm
+from wtforms import Form, BooleanField, StringField, PasswordField, EmailField, validators
+from werkzeug.datastructures import ImmutableMultiDict
 
 # Init app
 app = Flask(__name__)
@@ -63,13 +66,13 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(200), nullable=False)
-    password = db.Column(db.String(80))
+    password = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
     
 class UserSchema(ma.Schema):
     class Meta:
-        model = User
+        fields = ('id','name','email','password','created_at')
         
 user_schema = UserSchema()
 users_schema = UserSchema(many=True)
@@ -81,6 +84,63 @@ def get_users():
         users = User.query.order_by(User.created_at.desc()).all()
         return users_schema.jsonify(users)
     
+class userFromRequest(FlaskForm):
+    class Meta:
+        csrf = False
+    name =  StringField('name', validators=[ 
+        validators.InputRequired('The name is required.'),
+        validators.Length(min=- 1, max= 60, message='mininum 1 to maximum 60 charecter is required.')
+    ])
+    email = EmailField('email', validators=[ 
+        validators.InputRequired('The email is required.'),
+        validators.Length(min=- 1, max= 150, message='mininum 1 to maximum 150 charecter is required.'),
+        validators.Email(message='Invalid Email.')
+    ])
+    password = PasswordField('password',validators=[
+        validators.InputRequired('The password is required.'),
+        validators.Length(min= 4, max= 32, message='mininum 4 to maximum 32 charecter is required.'),
+        validators.EqualTo('confirm_password', message='password not match.')
+    ])
+    confirm_password = PasswordField('Repeat Password')
+    
+    def validate_email(form, field):
+        user = User.query.filter_by( email=field.data ).first()
+        if user:
+            raise validators.ValidationError('This email was exists.')
+    
+
+@app.route("/register", methods=['POST'])
+def register():
+    if request.method == 'POST':
+        # validation
+        form = userFromRequest()
+        if form.validate():
+            name = request.json['name']
+            email = request.json['email']
+            password = generate_password_hash(request.json['password'], method='sha256')
+            register = User(name=name, email=email, password=password)
+            try:
+                db.session.add(register)
+                db.session.commit()
+                return user_schema.jsonify(register)
+            except:
+                return jsonify({'message':'Something wrong.'})
+        else:
+            return jsonify({'message':'The given data was invalid.','errors':form.errors})
+        
+@app.route("/load-user/<id>", methods=['GET'])
+def load_user(id):
+    if request.method == 'GET':
+        user =  User.query.filter_by( id=id ).first()
+        return user_schema.jsonify(user)    
+  
+  
+  
+  
+  
+  
+  
+
 
 # route
 @app.route("/", methods=['GET'])
